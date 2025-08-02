@@ -1,0 +1,98 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: datatab-postgres
+    environment:
+      POSTGRES_DB: datatab_dev
+      POSTGRES_USER: datatab_user
+      POSTGRES_PASSWORD: datatab_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/prisma/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - datatab-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: datatab-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - datatab-network
+
+  # MinIO Object Storage (S3 compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: datatab-minio
+    environment:
+      MINIO_ROOT_USER: datatab_minio
+      MINIO_ROOT_PASSWORD: datatab_minio_password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - datatab-network
+
+  # Backend Development Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: datatab-backend
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://datatab_user:datatab_password@postgres:5432/datatab_dev
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: dev_jwt_secret_key
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: datatab_minio
+      MINIO_SECRET_KEY: datatab_minio_password
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    depends_on:
+      - postgres
+      - redis
+      - minio
+    networks:
+      - datatab-network
+
+  # Frontend Development Server
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: datatab-frontend
+    environment:
+      VITE_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - datatab-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  datatab-network:
+    driver: bridge

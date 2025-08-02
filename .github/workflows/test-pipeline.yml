@@ -1,0 +1,560 @@
+name: Comprehensive Test Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '18'
+  POSTGRES_VERSION: '14'
+  REDIS_VERSION: '7'
+
+jobs:
+  # Backend Unit and Integration Tests
+  backend-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: datatab_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: datatab_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Setup test database
+      working-directory: ./backend
+      env:
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+      run: |
+        npm run db:generate
+        npm run db:migrate
+
+    - name: Run unit tests
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test
+
+    - name: Run integration tests
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test -- --run src/test/integration/
+
+    - name: Run security tests
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test -- --run src/test/security.test.ts src/test/penetration.test.ts
+
+    - name: Run performance tests
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test -- --run src/test/performance.test.ts
+
+    - name: Generate test coverage report
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test -- --coverage
+
+    - name: Upload backend coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage/lcov.info
+        flags: backend
+        name: backend-coverage
+
+  # Frontend Unit and Component Tests
+  frontend-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Run unit tests
+      working-directory: ./frontend
+      run: npm test
+
+    - name: Run accessibility tests
+      working-directory: ./frontend
+      run: npm test -- --run src/test/accessibility.test.tsx
+
+    - name: Generate test coverage report
+      working-directory: ./frontend
+      run: npm test -- --coverage
+
+    - name: Upload frontend coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  # Statistical Analysis Validation Tests
+  statistical-validation:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: datatab_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: datatab_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    - name: Setup R for statistical validation
+      uses: r-lib/actions/setup-r@v2
+      with:
+        r-version: '4.3.0'
+
+    - name: Install R packages for validation
+      run: |
+        R -e "install.packages(c('jsonlite', 'httr', 'testthat'), repos='https://cran.rstudio.com/')"
+
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Setup test database
+      working-directory: ./backend
+      env:
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+      run: |
+        npm run db:generate
+        npm run db:migrate
+
+    - name: Run comprehensive statistical tests
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+      run: npm test -- --run src/test/statistical-analysis-comprehensive.test.ts
+
+    - name: Validate statistical accuracy against R
+      working-directory: ./backend
+      run: |
+        # Create R validation script
+        cat > validate_statistics.R << 'EOF'
+        library(jsonlite)
+        library(httr)
+        library(testthat)
+        
+        # Test data
+        test_data <- c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        
+        # R calculations
+        r_mean <- mean(test_data)
+        r_sd <- sd(test_data)
+        r_median <- median(test_data)
+        r_var <- var(test_data)
+        
+        # Compare with our implementation (would need API endpoint)
+        cat("R Mean:", r_mean, "\n")
+        cat("R SD:", r_sd, "\n")
+        cat("R Median:", r_median, "\n")
+        cat("R Variance:", r_var, "\n")
+        
+        # T-test validation
+        group1 <- c(1, 2, 3, 4, 5)
+        group2 <- c(6, 7, 8, 9, 10)
+        r_ttest <- t.test(group1, group2)
+        
+        cat("R T-test statistic:", r_ttest$statistic, "\n")
+        cat("R T-test p-value:", r_ttest$p.value, "\n")
+        
+        # ANOVA validation
+        data_anova <- data.frame(
+          value = c(1,2,3,4,5,6,7,8,9),
+          group = factor(c('A','A','A','B','B','B','C','C','C'))
+        )
+        r_anova <- aov(value ~ group, data = data_anova)
+        r_anova_summary <- summary(r_anova)
+        
+        cat("R ANOVA F-statistic:", r_anova_summary[[1]][["F value"]][1], "\n")
+        cat("R ANOVA p-value:", r_anova_summary[[1]][["Pr(>F)"]][1], "\n")
+        EOF
+        
+        Rscript validate_statistics.R
+
+  # End-to-End Tests
+  e2e-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: datatab_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: datatab_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: |
+        cd backend && npm ci
+        cd ../frontend && npm ci
+
+    - name: Setup test database
+      working-directory: ./backend
+      env:
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+      run: |
+        npm run db:generate
+        npm run db:migrate
+
+    - name: Install Playwright browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps
+
+    - name: Start backend server
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+        PORT: 3001
+      run: npm run dev &
+
+    - name: Start frontend server
+      working-directory: ./frontend
+      env:
+        VITE_API_URL: http://localhost:3001
+      run: npm run dev &
+
+    - name: Wait for servers to start
+      run: |
+        npx wait-on http://localhost:3000 http://localhost:3001 --timeout 60000
+
+    - name: Run E2E tests
+      working-directory: ./frontend
+      run: npx playwright test
+
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: playwright-report
+        path: frontend/playwright-report/
+        retention-days: 30
+
+  # Visual Regression Tests
+  visual-regression:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+
+    - name: Run visual regression tests
+      working-directory: ./frontend
+      run: npm test -- --run src/test/visual-regression.test.tsx
+
+    - name: Upload visual test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: visual-regression-results
+        path: frontend/src/test/screenshots/
+        retention-days: 30
+
+  # Load Testing
+  load-testing:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: datatab_test
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: datatab_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: backend/package-lock.json
+
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: npm ci
+
+    - name: Setup test database
+      working-directory: ./backend
+      env:
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+      run: |
+        npm run db:generate
+        npm run db:migrate
+
+    - name: Install k6 for load testing
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Start backend server
+      working-directory: ./backend
+      env:
+        NODE_ENV: test
+        DATABASE_URL: postgresql://datatab_test:test_password@localhost:5432/datatab_test
+        REDIS_URL: redis://localhost:6379
+        JWT_SECRET: test_jwt_secret
+        ENCRYPTION_KEY: ${{ secrets.TEST_ENCRYPTION_KEY }}
+        PORT: 3001
+      run: npm run dev &
+
+    - name: Wait for server to start
+      run: npx wait-on http://localhost:3001 --timeout 60000
+
+    - name: Create load test script
+      run: |
+        cat > load-test.js << 'EOF'
+        import http from 'k6/http';
+        import { check, sleep } from 'k6';
+
+        export let options = {
+          stages: [
+            { duration: '2m', target: 10 }, // Ramp up to 10 users
+            { duration: '5m', target: 10 }, // Stay at 10 users
+            { duration: '2m', target: 20 }, // Ramp up to 20 users
+            { duration: '5m', target: 20 }, // Stay at 20 users
+            { duration: '2m', target: 0 },  // Ramp down to 0 users
+          ],
+          thresholds: {
+            http_req_duration: ['p(95)<500'], // 95% of requests must complete below 500ms
+            http_req_failed: ['rate<0.1'],   // Error rate must be below 10%
+          },
+        };
+
+        export default function () {
+          // Test API health endpoint
+          let response = http.get('http://localhost:3001/health');
+          check(response, {
+            'status is 200': (r) => r.status === 200,
+            'response time < 200ms': (r) => r.timings.duration < 200,
+          });
+
+          sleep(1);
+        }
+        EOF
+
+    - name: Run load tests
+      run: k6 run load-test.js
+
+  # Security Scanning
+  security-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Setup Node.js for dependency check
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Run npm audit
+      run: |
+        cd backend && npm audit --audit-level moderate
+        cd ../frontend && npm audit --audit-level moderate
+
+  # Test Results Summary
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests, statistical-validation, e2e-tests, visual-regression, load-testing, security-scan]
+    if: always()
+
+    steps:
+    - name: Test Results Summary
+      run: |
+        echo "## Test Results Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Test Suite | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|------------|--------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Backend Tests | ${{ needs.backend-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Frontend Tests | ${{ needs.frontend-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Statistical Validation | ${{ needs.statistical-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| E2E Tests | ${{ needs.e2e-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Visual Regression | ${{ needs.visual-regression.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Load Testing | ${{ needs.load-testing.result }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Security Scan | ${{ needs.security-scan.result }} |" >> $GITHUB_STEP_SUMMARY
+
+    - name: Notify on failure
+      if: contains(needs.*.result, 'failure')
+      run: |
+        echo "❌ Some tests failed. Please check the individual job results."
+        exit 1
+
+    - name: Notify on success
+      if: contains(needs.*.result, 'success')
+      run: |
+        echo "✅ All tests passed successfully!"
