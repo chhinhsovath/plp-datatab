@@ -11,10 +11,7 @@
     },
     {
       "src": "backend/src/index.ts",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": ["backend/prisma/**"]
-      }
+      "use": "@vercel/node"
     }
   ],
   "routes": [
@@ -26,21 +23,5 @@
       "src": "/(.*)",
       "dest": "/frontend/$1"
     }
-  ],
-  "env": {
-    "NODE_ENV": "production",
-    "DATABASE_URL": "@database-url",
-    "REDIS_URL": "@redis-url",
-    "JWT_SECRET": "@jwt-secret",
-    "ENCRYPTION_KEY": "@encryption-key"
-  },
-  "functions": {
-    "backend/src/index.ts": {
-      "maxDuration": 30
-    }
-  },
-  "regions": ["iad1"],
-  "github": {
-    "autoAlias": false
-  }
+  ]
 }
